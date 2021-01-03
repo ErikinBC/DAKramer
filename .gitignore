@@ -1,3 +1,4 @@
+*
 !.gitignore
-!.R
-!.Rproj
+!*.R
+!*.Rproj
