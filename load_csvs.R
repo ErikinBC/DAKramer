@@ -19,6 +19,7 @@ dir_output <- file.path(dir_base, 'output')
 yy_folders <- list.files(dir_data) %>% str_subset('^[0-9]')
 
 holder <- list()
+holder2 <- list()
 for (yf in yy_folders) {
   fold <- file.path(dir_data, yf)
   fn_fold <- list.files(fold)
@@ -27,17 +28,21 @@ for (yf in yy_folders) {
   if (yf == '2016 data') {
     cat('--- Doing special processing for 2016 ---\n')
     for (fn in fn_fold) {
+      census_year <- 2016
       cat(sprintf('file: %s\n',fn))
       path <- file.path(fold, fn)
       tmp <- fread(path, select = c(1,2))
       colnames(tmp) <- c('geo','pop')
-      tmp <- tmp %>%
-        mutate(geo=str_split_fixed(geo,'\\s',2)[,1],pop=as.integer(pop)) %>%
+      tmp <- mutate(tmp, geo=str_split_fixed(geo,'\\s',2)[,1],pop=as.integer(pop))
+      tmp2 <- tmp %>% filter(str_detect(geo,'[A-Z]')) %>% 
+        mutate(year=census_year) %>% rename(city=geo)
+      tmp <-  tmp %>%
         filter(str_detect(geo,'^[0-9]')) %>%
         mutate(city=ifelse(str_detect(geo,'^35'),'Toronto','Vancouver')) %>%
         dplyr::rename(DA=geo) %>%
-        mutate(DA=as.integer(DA),year=2016)
+        mutate(DA=as.integer(DA),year=census_year)
       holder[[fn]] <- tmp
+      holder2[[fn]] <- tmp2
     }
   } else {
     cat(sprintf('--- Processing year: %s ---\n',yf))
@@ -48,14 +53,17 @@ for (yf in yy_folders) {
       tmp <- read_csv(path,n_max=1, col_types = list(.default=col_character()))
       tmp <- tibble(DA=colnames(tmp), pop=as.vector(unlist(tmp[1,])))
       census_year <- as.character(unlist(tmp[1,'DA']))
+      census_year <- as.integer(str_split(census_year,'\\s')[[1]][1])
       print(sprintf('Census year: %s',census_year))
       kk <- 2
       if (!is_v2) {
         city <- as.character(unlist(tmp[2,'DA']))
+        city <- str_to_title(str_split(city,'\\s')[[1]][1])
         agg_pop <- as.integer(tmp[2,'pop'])
         cat(sprintf('City: %s, pop: %i\n', city, agg_pop))
         tmp2 <- tibble(year=census_year, city=city, pop=agg_pop)
         kk <- 3
+        holder2[[fn]] <- tmp2
       }
       tmp <- mutate(tmp[kk:nrow(tmp),],year=census_year,
                     city=city, pop=as.integer(pop))
@@ -63,19 +71,17 @@ for (yf in yy_folders) {
     }
   }
 }
-
-
-df_pop <- do.call('rbind',holder)
-df_pop <- df_pop %>% 
-  mutate(year=as.integer(str_replace(year,'\\sCensus',''))) %>% 
-  mutate(city=str_split_fixed(city,'\\s',2)[,1] %>% tolower() %>% str_to_title())
-# Save copy
+# Bind aggregate population
+df_agg_pop <- do.call('rbind',holder2) %>% arrange(city,year)
+write_csv(df_agg_pop,file.path(dir_output,'df_agg_pop.csv'))
+# Bind DA data
+df_pop <- do.call('rbind',holder) %>% mutate(DA=as.integer(DA), year=as.integer(year))
 write_csv(df_pop,file.path(dir_output,'df_pop.csv'))
 
 
 # Load if already run
 df_pop <- read_csv(file.path(dir_output,'df_pop.csv'), col_types = list(city=col_character()))
-
+df_agg_pop <- read_csv(file.path(dir_output,'df_agg_pop.csv'), col_types = list(city=col_character()))
 
 #################################
 # ------ (2) DATA CHECKS ------ #
@@ -184,6 +190,9 @@ for (ii in seq(1,n_uyears-1)) {
 df_pop_comp <- do.call('rbind',holder)
 write_csv(df_pop_comp,file.path(dir_output,'df_pop_comp.csv'))
 
+
+
+
 ########################################
 # ------ (4) ESTABLISH BASELINE ------ #
 
@@ -255,3 +264,25 @@ df_pop %>% filter((DA %in% DAs_2_use) & (year >= yy_min))
 
 ############################################
 # ------ (6) DA DECOMPOSITION (MAP) ------ #
+
+
+
+
+
+
+
+
+
+
+
+
+
+############################################
+# ------ (X) SURPLUS CODE ------ #
+
+# tmp3 <- fread(file.path(dir_data,'toronto_and_vancouver_v2.csv'),select=c(1,2))
+# colnames(tmp3) <- c('geo','pop')
+# tmp3 <- mutate(tmp3, geo=str_split_fixed(geo,'\\s',2)[,1],pop=as.integer(pop))
+# tmp3 %>% filter(str_detect(geo,'^[0-9]')) %>% mutate(geo=as.integer(geo)) %>% 
+#   left_join(tmp,by=c('geo'='DA')) %>% 
+#   mutate(dd = pop.x - pop.y) %>% pull(dd) %>% table
