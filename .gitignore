@@ -3,3 +3,5 @@
 !*.R
 !*.Rproj
 !*.ipynb
+!*.sh
+.Rproj.user
