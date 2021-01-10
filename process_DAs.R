@@ -52,7 +52,7 @@ df_all <- dat_DA %>%
   rename(city1a=city1, city1b=City) %>% 
   mutate(city1b=ifelse(is.na(city1b), city1a, city1b))
 # Clean up csd
-stopifnot(all(na.omit(with(df_all, city1 == csd))))
+stopifnot(all(na.omit(with(df_all, city1a == csd))))
 df_all <- df_all[,-'csd']
 
 # (4) Break down Toronto (if missing or low count, then assign to Toronto)

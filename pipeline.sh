@@ -9,5 +9,10 @@ Rscript process_kramer.R
 echo "(2) PROCESS THE DA files"
 Rscript process_DAs.R
 
+echo "(3) RUN ANALYSIS"
+Rscript run_analysis.R
+
+echo "(4) MAKE MAPS"
+#Rscript run_geo.R
 
 echo "----- END OF pipeline.sh ------"

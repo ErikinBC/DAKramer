@@ -1,9 +1,8 @@
 ########################
 # --- ANALYZE DATA --- #
 
-pckgs <- c('dplyr','tidyr','readr','magrittr','stringr','forcats',
-           'data.table',
-           'ggplot2','cowplot','sf', 'rgdal') # 
+pckgs <- c('dplyr','tidyr','readr','magrittr','stringr','forcats','data.table',
+           'ggplot2','cowplot')
 for (pp in pckgs) { library(pp,character.only=T,quietly = T,warn.conflicts = F)}
 
 dir_base <- getwd()
@@ -28,7 +27,7 @@ df_agg_pop <- read_csv(file.path(dir_output,'df_agg_pop.csv'), col_types = list(
 # Load geographic info
 df_DA <- read_csv(file.path(dir_output,'df_DA.csv'), col_types = list(DA=col_integer()))
 df_PC <- read_csv(file.path(dir_output,'df_PC.csv'), col_types = list(DA=col_integer()))
-
+dat_latlon <- df_PC %>% group_by(DA) %>% summarise_at(vars(Latitude,Longitude),list(~mean(.)))
 
 #################################
 # ------ (2) DATA CHECKS ------ #
@@ -81,7 +80,7 @@ for (ii in seq(1,n_uyears-1)) {
     holder[[str_c(y1,y2)]] <- tmp_ij
   }
 }
-dat_pair <- do.call('rbind',holder)
+dat_pair <- rbindlist(holder,use.names=T)
 dat_pair <- dat_pair %>% group_by(city,y1,y2) %>% 
   summarise(tot=sum(n)) %>%
   right_join(dat_pair,by=c('city','y1','y2')) %>% 
@@ -118,11 +117,12 @@ save_plot(file.path(dir_figures,'gg_DA_delta.png'),gg_DA_delta,base_height=4,bas
 # (i) Descrepenancy between total population and sum of DAs
 df_agg_pop <- df_agg_pop %>% group_by(city) %>% mutate(idx=pop/pop[1]*100)
 df_agg_DA <- df_pop %>% group_by(city,year) %>% summarise(pop=sum(pop)) %>% mutate(idx=pop/pop[1]*100)
-df_agg_both <- rbind(mutate(df_agg_pop,tt='agg'),mutate(df_agg_DA,tt='DA'))
+df_agg_both <- tibble(rbindlist(list(mutate(df_agg_pop,tt='agg'),mutate(df_agg_DA,tt='DA')),use.names=T))
 dat_can_wiki <- read_csv(file.path(dir_output,'canada_pop_wiki.csv'),
-                         col_types = list(year=col_integer())) %>% 
+                         col_types = list(year=col_double())) %>% 
   dplyr::rename(pop=canada) %>% mutate(idx=pop/pop[1]*100,city='Canada')
-dat_can_city <- rbind(df_agg_pop,dat_can_wiki) %>% 
+
+dat_can_city <- tibble(rbindlist(list(df_agg_pop,dat_can_wiki),use.names = T)) %>% 
   pivot_longer(c(pop,idx),names_to='tt') %>% ungroup %>% 
   filter(!(city=='Canada' & tt=='pop')) %>% 
   mutate(value=ifelse(tt=='pop',value/1e6,value)) %>% 
@@ -170,7 +170,7 @@ for (ii in seq(1,n_uyears-1)) {
     holder[[str_c(ii,jj)]] <- tmp_ij
   }
 }
-df_pop_comp <- do.call('rbind',holder)
+df_pop_comp <- rbindlist(holder,use.names=T)
 # Subset to only the iterative years
 df_pop_iter <- df_pop_comp %>% group_by(city,y1) %>% filter(y2 == min(y2))
 
@@ -204,17 +204,14 @@ for (y1 in seq(1,n_uyears-1)) {
     mutate(iyear=y1, year=as.integer(ifelse(year=='iyear',as.character(y1),year)))
   holder[[as.character(y1)]] <- tmp_idx
 }
-dat_idx <- do.call('rbind',holder) %>% 
+dat_idx <- rbindlist(holder,use.names=T) %>% 
   group_by(iyear, city) %>% 
   arrange(iyear,city,year) %>% 
   mutate(idx=pop/pop[1]*100)
+
 # Plot the index year
-
-dat_idx %>% head
-df_agg_pop %>% head
-
-tmp <- rbind(mutate(dat_idx,iyear=as.character(iyear)),
-      mutate(df_agg_pop,iyear='Actual'))
+tmp <- tibble(rbindlist(list(mutate(dat_idx,iyear=as.character(iyear)),
+              mutate(df_agg_pop,iyear='Actual')),use.names=T))
 gg_idx <- ggplot(tmp, aes(x=year,y=idx,color=iyear)) + 
   theme_bw() + geom_point() + geom_line() + 
   labs(x='Census Year',y='Population (Indexed==100)',
@@ -239,144 +236,119 @@ dat_decompose <- df_pop_iter %>%
   mutate(dd=m2 - m1)
 dat_decompose <- dat_decompose %>% group_by(city,y1,y2) %>% 
   summarise(change=sum(dd)) %>% right_join(dat_decompose) %>% 
-  dplyr::select(-c(m1,m2)) %>% mutate(year=as.character(y2)) %>% 
+  dplyr::select(-c(m1,m2)) %>% mutate(year=as.character(y2)) %>% ungroup %>% 
   mutate(tt=lvls_reorder(fct_recode(tt,'Density'='density','New DAs'='new','Lost DAs'='lost'),c(1,3,2)))
 
-gg_decompose <- ggplot(dat_decompose,aes(x=year,y=dd/1e3,fill=tt)) + 
+gg_decompose <-
+  ggplot(dat_decompose,aes(x=year,y=dd/1e3,fill=tt)) + 
   theme_bw() + geom_bar(stat='identity',color='black') + 
   facet_wrap(~city) + 
-  labs(x='Census Year',y='Δ in population') + 
+  labs(x='Census Year',y='Δ in population', subtitle = 'Point shows net change') + 
   scale_fill_discrete(name='Share',labels=c('Density','New DAs','Lost DAs')) + 
-  theme(axis.text.x = element_text(angle=90))
+  theme(axis.text.x = element_text(angle=90)) + 
+  geom_point(aes(x=year,y=change/1e3),data=filter(dat_decompose,tt=='Density'),inherit.aes = F)
 save_plot(file.path(dir_figures,'gg_decompose.png'),gg_decompose,base_height=4,base_width = 7)
+
+tmp_decomp <- dplyr::select(dat_decompose,-dd) %>% 
+  dplyr::rename(dd=change) %>% mutate(tt='Actual') %>% 
+  distinct() %>% 
+  list(., dplyr::select(dat_decompose,-change)) %>% 
+  rbindlist(.,use.names=T) %>% tibble %>% 
+  left_join(df_agg_DA,by=c('y1'='year','city')) %>% 
+  dplyr::select(-idx) %>% 
+  pivot_wider(names_from='tt',values_from='dd') %>% 
+  mutate(`Net DAs`=`New DAs`+`Lost DAs`) %>% 
+  dplyr::select(-c(`New DAs`,`Lost DAs`)) %>% 
+  pivot_longer(c(Actual,Density,`Net DAs`),names_to='tt',values_to='dd') %>% 
+  arrange(city,tt,y1) %>%
+  group_by(city,tt) %>%
+  mutate(cum_d=cumsum(dd),year=as.integer(year)) %>%
+  mutate(pop=cum_d+pop[1]) %>% ungroup
+tmp_decomp <- dplyr::select(df_agg_DA,-idx) %>%
+  filter(year==1971) %>% mutate(tt=list(unique(tmp_decomp$tt))) %>% 
+  unnest(cols=tt) %>% 
+  list(.,dplyr::select(tmp_decomp,-c(y1,y2,dd,cum_d))) %>% 
+  rbindlist(.,use.names=T) %>% tibble %>% 
+  arrange(city,tt,year) %>% 
+  mutate(tt=fct_relevel(tt,c('Density','Net DAs','Actual')))
+
+# Make figure showing counterfactural
+colz <- c(gg_color_hue(3)[1],gg_color_hue(4)[4], 'black')
+gg_cf_decomp <- ggplot(tmp_decomp,aes(x=year,y=pop/1e6,color=tt)) +
+  theme_bw() + geom_point() + geom_line() +
+  labs(y='Population (millions)') + 
+  scale_color_manual('Method',values=colz) + 
+  facet_wrap(~city,scales='free_y') + 
+  labs(x='Census Year') + 
+  scale_x_continuous(breaks=seq(1971,2016,5)) + 
+  theme(axis.text.x = element_text(angle=90))
+save_plot(file.path(dir_figures,'gg_cf_decomp.png'),gg_cf_decomp,base_height=4,base_width = 7)
+
 
 ##############################################################
 # ------ (4) DISTRIBUTION OF CHANGES IN DENSITICATION ------ #
 
-##################################################
-# ------ (5) VISUALIZE THE MISSING VALUES ------ #
+# (i) BREAK DENSITY INTO INCREASE VS DECREASE TO GET NET CHANGE IN DENSITY
+dat_DA_delta <- df_pop_iter %>% 
+  dplyr::select(-pct) %>% drop_na %>% 
+  # mutate_at(vars(m1,m2),list(~ifelse(is.na(.),0,.))) %>% 
+  mutate(d_DA=m2 - m1) %>% mutate(tt=ifelse(d_DA<0,'Loss','Gain'))
 
-library(broom)
-library(rgdal)
-# tor_shp <- st_read(dsn='lda_000b16a_e/lda_000b16a_e.shp')
-tor_shp <- readOGR('lda_000b16a_e/lda_000b16a_e.shp')
-tor_shp <- tor_shp[tor_shp$DAUID %in% u_DAs_tor,]
-plot(tor_shp)
+gg_DA_delta_dist <- ggplot(dat_DA_delta,aes(x=log(abs(d_DA)+1),fill=tt,color=tt)) + theme_bw() + 
+  geom_histogram(bins=15,alpha=0.5,position='identity') + 
+  facet_grid(city~y2,scales='free_y') + 
+  labs(x='log(Δ DA)',y='Count') + 
+  scale_fill_discrete(name='Δ in DA') + 
+  guides(color=F) + theme(axis.text.x = element_text(size=6))
+save_plot(file.path(dir_figures,'gg_DA_delta_dist.png'),gg_DA_delta_dist,base_height=5,base_width = 8)
 
-tor_shp@bbox
+dat_DA_delta_net <- dat_DA_delta %>% group_by(city,y2,tt) %>% 
+  summarise(d_DA = sum(d_DA))
+dat_DA_delta_net <-
+  dat_DA_delta_net %>% group_by(city,y2) %>% summarise(d_DA=sum(d_DA)) %>% 
+  mutate(tt='Net') %>% list(.,dat_DA_delta_net) %>% rbindlist(.,use.names=T) %>% tibble %>% 
+  arrange(city,y2,tt)
 
-tidy(tor_shp)
+colz <- c(gg_color_hue(3)[c(3,1)],'black')
+gg_DA_delta_net <- ggplot(dat_DA_delta_net,aes(x=as.character(y2),y=d_DA/1e3,color=tt,group=tt)) + 
+  theme_bw() + geom_point(size=2) + geom_line() + 
+  facet_wrap(~city) + geom_hline(yintercept = 0) + 
+  theme(axis.text.x = element_text(angle=90)) + 
+  labs(x='Census Year',y="Δ in DAs ('000s)",subtitle = 'Net change within existing DAs') + 
+  scale_color_manual(name='Change',values=colz) 
+save_plot(file.path(dir_figures,'gg_DA_delta_net.png'),gg_DA_delta_net,base_height=4,base_width = 7)
 
-st_bbox(tor_shp)
-class(tor_shp)
+# Now calculate the # of changes
+dat_DA_delta_n <- dat_DA_delta %>% mutate(s_DA=sign(d_DA)) %>% 
+  group_by(city,y2,s_DA) %>% 
+  count %>% mutate(s_DA=factor(s_DA,levels=c(-1,0,1),labels=c('Loss','No Change','Gain')))
 
-tidy(tor_shp)
-
-gg_tor <- ggplot() + 
-  geom_sf(data = tor_shp, size = 3, color = "black", fill = "cyan1") + 
-  ggtitle('CMA Toronto') + 
-  coord_sf(xlim = c(3689439, 3789439), ylim = c(659338, 669338), expand = FALSE)
-gg_tor
-
-
-
-
-
-
-
-
-
-
-# cn <- c('city','y1','y2')
-# dat_growth_comp <- dat_growth_act %>% 
-#   left_join(dat_growth_DA, by=cn, suffix=c('.act','.DA')) %>% 
-#   pivot_longer(!cn,names_to='tmp') %>% 
-#   separate(tmp, c('msr','tt'), '\\.') %>% 
-#   arrange(city, msr, y1, y2) %>% 
-#   filter(msr == 'growth') %>% 
-#   dplyr::select(-msr)
-# # pivot_wider(id_cols=c(cn,msr),names_from='tt',values_from='value') %>% 
-# 
-# # THIS IS PROBLEMATIC!!! 
-# gg_growth_comp <- ggplot(dat_growth_comp,aes(x=as.character(y1),y=value, fill=tt)) + 
-#   theme_bw() + facet_wrap(~city) + 
-#   geom_bar(stat='identity',color='black',position = position_dodge2(0.5)) + 
-#   labs(y='Inter-census growth (%)', x='Census Year') + 
-#   scale_fill_manual(name=' ',labels=c('Actual','DA'), values=colz2_alt) + 
-#   scale_y_continuous(labels = scales::percent_format(accuracy = 1)) + 
-#   theme(legend.position = c(0.7,0.2),axis.text.x = element_text(angle=90))
-# gg_growth_comp
-
-# gg_pop_all <- ggplot(df_agg_both, aes(x=as.character(year),y=pop/1e6,color=tt)) + 
-#   theme_bw() + geom_point(position = position_dodge2(1/2)) + 
-#   labs(x='Census Year',y='Population (Millions)') + 
-#   theme(legend.position = c(0.12,0.80),axis.text.x = element_text(angle=90)) + 
-#   scale_color_discrete(name='Method',labels=c('Census','DA')) + 
-#   ggtitle('CMA population over time') + 
-#   facet_wrap(~city,scales='free_y')
-# save_plot(file.path(dir_figures,'gg_pop_all.png'),gg_pop_all,base_height=4,base_width = 6)
-
-# # (iii) What years have the "missing" DAs
-# dat_missing <- df_pop %>% 
-#   pivot_wider(id_cols=c(city,DA),names_from=year,values_from=pop) %>% 
-#   pivot_longer(!c(city,DA),names_to='year',values_to='pop') %>% 
-#   group_by(city,year) %>% 
-#   summarise(n_miss=sum(is.na(pop)))
-# gg_n_miss <- ggplot(dat_missing,aes(x=year,y=n_miss,fill=city)) + theme_bw() + 
-#   geom_bar(stat='identity',position = position_dodge2(0.1),color='black') +
-#   facet_wrap(~city,scales='free_y') + guides(fill=F) + 
-#   labs(y='# of missing DAs',x='Census year') + 
-#   ggtitle('Number of missing DAs (out of all unique)') + 
-#   theme(axis.text.x = element_text(angle=90)) #axis.title.x = element_blank(),
-# save_plot(file.path(dir_figures,'gg_n_miss.png'),gg_n_miss,base_height=4,base_width = 6)
+gg_DA_delta_n <- ggplot(dat_DA_delta_n,aes(x=as.character(y2),y=n,color=s_DA,group=s_DA)) + 
+  theme_bw() + geom_point(size=2) + geom_line() + 
+  facet_wrap(~city) + geom_hline(yintercept = 0) + 
+  theme(axis.text.x = element_text(angle=90)) + 
+  labs(x='Census Year',y="# of DAs",subtitle = 'Net change within existing DAs') + 
+  scale_color_manual(name='Change',values=colz[c(2,3,1)]) 
+save_plot(file.path(dir_figures,'gg_DA_delta_n.png'),gg_DA_delta_n,base_height=4,base_width = 7)
 
 
-# ########################################
-# # ------ (4) ESTABLISH BASELINE ------ #
-# 
-# df_pop_comp <- read_csv(file.path(dir_output,'df_pop_comp.csv'),col_types=list(city=col_character()))
-# 
-# # Load population according to wiki
-# dat_tor_wiki <- read_csv(file.path(dir_output,'toronto_pop_wiki.csv'),col_types = list(year=col_integer()))
-# dat_tor_wiki <- dat_tor_wiki %>% mutate_at(c('city','cma'),
-#                                            list(~as.integer(str_split_fixed(str_replace_all(.,'\\,',''),'\\[',n=2)[,1])))
-# dat_van_wiki <- read_csv(file.path(dir_output,'vancouver_pop_wiki.csv'),col_types = list(year=col_integer()))
-# dat_can_wiki <- read_csv(file.path(dir_output,'canada_pop_wiki.csv'),col_types = list(year=col_integer()))
-# dat_wiki <- rbind(mutate(dat_tor_wiki,tt='Toronto'),mutate(dat_van_wiki,tt='Vancouver'))
-# dat_wiki <- dat_wiki %>% dplyr::select(-cma) %>% rename(pop=city,city=tt)
-# 
-# 
-# # Get the aggregate populatio growth between periods
-# df_pop_agg <- df_pop_comp %>% group_by(city,y1,y2) %>% 
-#   summarise(m1=sum(m1),m2=sum(m2)) %>% 
-#   mutate(pct=m2/m1-1)
-
-# 
-# gg_idx <- ggplot(dat_idx_growth,aes(x=year,y=idx,color=tt)) + 
-#   theme_bw() + geom_point() + geom_line() + 
-#   facet_grid(iyear~city,scales='free_y') + labs(y='Index',subtitle = 'Black line in Canada') + 
-#   theme(axis.title.x = element_blank(), axis.text.x = element_text(angle=90)) + 
-#   scale_x_continuous(breaks=u_years) + 
-#   scale_color_discrete(name='Method', labels=c('DA','Census')) + 
-#   geom_line(aes(x=year,y=canada),color='black',inherit.aes = T)
-# save_plot(file.path(dir_figures,'gg_idx.png'),gg_idx,base_height=10,base_width = 7)
-# 
-# yy_min <- 1991
-# # Use the unique intersection of DAs since 1991
-# DAs_w_miss <- df_pop %>% filter(year >= yy_min) %>% 
-#   pivot_wider(c(city,DA),names_from='year',values_from='pop') %>% 
-#   pivot_longer(!c(city,DA)) %>% filter(is.na(value)) %>% 
-#   pull(DA) %>% unique
-# DAs_2_use <- df_pop %>% filter(year >= yy_min) %>%  pull(DA) %>% unique %>% setdiff(DAs_w_miss)
-# print(sprintf('Using a total of %i DAs',length(DAs_2_use)))
+cn_id <- c('city','DA')
+dat_DA_rho <- dat_DA_delta %>% 
+  pivot_wider(id_cols=cn_id,names_from='y2',values_from='d_DA') %>% 
+  pivot_longer(!cn_id) %>% 
+  drop_na %>% mutate(s_DA=sign(value)) %>% 
+  group_by(city, DA,s_DA) %>% count
+dat_DA_rho <- dat_DA_rho %>% group_by(DA) %>% 
+  summarise(tot=sum(n)) %>% right_join(dat_DA_rho) %>% 
+  mutate(pct=n/tot) %>% left_join(dat_latlon,by='DA') %>% 
+  mutate(s_DA=factor(s_DA,levels=c(-1,0,1),labels=c('Loss','No Change','Gain')))
+# SAVE DATA FOR GEO FILE
+write_csv(dat_DA_rho,file.path(dir_base,'output','dat_DA_rho.csv'))
 
 
-############################################
-# ------ (X) SURPLUS CODE ------ #
+# (ii) BREAK DOWN THE NET DENSITY AND NET DAs BY THE NEIGHBOURHOOD LEVEL
+# (iii) DO A SPECIAL TORONTO PRE-AMALGATION CALCULATION
 
-# tmp3 <- fread(file.path(dir_data,'toronto_and_vancouver_v2.csv'),select=c(1,2))
-# colnames(tmp3) <- c('geo','pop')
-# tmp3 <- mutate(tmp3, geo=str_split_fixed(geo,'\\s',2)[,1],pop=as.integer(pop))
-# tmp3 %>% filter(str_detect(geo,'^[0-9]')) %>% mutate(geo=as.integer(geo)) %>% 
-#   left_join(tmp,by=c('geo'='DA')) %>% 
-#   mutate(dd = pop.x - pop.y) %>% pull(dd) %>% table
+
+
+
