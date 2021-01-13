@@ -1,6 +1,9 @@
 #####################
 # --- MAKE MAPS --- #
 
+# https://github.com/sjewo/cartogram
+# https://cran.r-project.org/web/packages/tilegramsR/vignettes/UsingTilegramsInR.html
+
 # https://everydayanalytics.ca/2016/03/plotting-choropleths-from-shapefiles-in-r-with-ggmap-toronto-neighbourhoods-by-population.html
 # https://www12.statcan.gc.ca/census-recensement/2011/geo/bound-limit/bound-limit-eng.cfm
 
@@ -14,15 +17,10 @@ for (pp in pckgs) { library(pp,character.only=T,quietly = T,warn.conflicts = F)}
 gpclibPermit()
 
 dir_base <- getwd()
-dir_data <- file.path(dir_base, 'DA_kramer')
-dir_lda <- file.path(dir_base, 'lda_000b16a_e')
+dir_data <- file.path(dir_base, 'data')
 dir_figures <- file.path(dir_base, 'figures')
 dir_output <- file.path(dir_base, 'output')
 
-gg_color_hue <- function(n) {
-  hues = seq(15, 375, length = n + 1)
-  hcl(h = hues, l = 65, c = 100)[1:n]
-}
 
 ##################################
 # ------ (1) LOAD IN DATA ------ #
@@ -39,9 +37,13 @@ u_years <- unique(df_pop$year)
 n_uyears <- length(u_years)
 u_DAs <- unique(df_pop$DA)
 u_DAs_tor <- unique(filter(df_pop,city=='Toronto')$DA)
+u_DAs_van <- unique(filter(df_pop,city=='Vancouver')$DA)
+u_csd <- unique(df_DA$csd)
+u_csd_tor <- unique(filter(df_DA,cma=='Toronto')$csd)
+u_csd_van <- unique(filter(df_DA,cma=='Vancouver')$csd)
 
 # Load data from analysis script
-dat_DA_rho <- read_csv(file.path(dir_base,'output','dat_DA_rho.csv'),col_types=list(DA=col_integer()))
+dat_DA_rho <- read_csv(file.path(dir_output, 'dat_DA_rho.csv'),col_types=list(DA=col_integer()))
 
 ############################################
 # ------ (2) SUBSET THE SHAPE FILES ------ #
@@ -70,7 +72,20 @@ gg_map_tor_delta <- gg_map_tor +
   facet_wrap(~s_DA)
 save_plot(file.path(dir_figures,'gg_map_tor_delta.png'),gg_map_tor_delta,base_height=5,base_width=10)
 
+# (2) Census Subdivision (CSD)
+shp_csd <- readOGR('lcsd000b16a_e/lcsd000b16a_e.shp')
+shp_csd <- shp_csd[shp_csd@data$CCSNAME %in% u_csd_tor & shp_csd@data$CMANAME == 'Toronto',]
+# Tidy it up
+shp_csd_df <- tidy(shp_csd) %>%
+  left_join(shp_csd@data[,c('CSDUID','CSDNAME','CMANAME')] %>% tibble::rownames_to_column('id'),'id')
 
+# https://gis.stackexchange.com/questions/377930/how-to-project-lambert-conformal-conic-to-wgs84-in-python
+# https://gis.stackexchange.com/questions/252627/r-plotting-2-polygon-shapefiles-problems-with-crs-extent
+
+st_crs(shp_csd)
+st_crs(shp_tor)
+shp_tor@proj4string
+shp_csd@proj4string
 
 
 
@@ -92,14 +107,7 @@ save_plot(file.path(dir_figures,'gg_map_tor_delta.png'),gg_map_tor_delta,base_he
 # gg_map_tor + 
 #   geom_polygon(aes(x=long,y=lat, group=group, fill=Total.Area), data=points2, color='black',inherit.aes = F)
 # 
-# # (2) Census Subdivision (CSD)
-# u_csd_tor <- unique(filter(df_DA,cma=='Toronto')$city1)
-# # u_csd <- unique(df_DA$city1)
-# shp_csd <- readOGR('lcsd000b16a_e/lcsd000b16a_e.shp')
-# shp_csd <- shp_csd[shp_csd@data$CCSNAME %in% u_csd_tor & shp_csd@data$CMANAME == 'Toronto',]
-# # Tidy it up
-# shp_csd_df <- tidy(shp_csd) %>% 
-#   left_join(shp_csd@data[,c('CSDUID','CSDNAME','CMANAME')] %>% tibble::rownames_to_column('id'),'id')
+
 # 
 # # Get a rough mapping to lat/lon
 # mi_sc <- apply(filter(shp_csd_df,CMANAME=='Toronto')[,c('long','lat')],2,min)

@@ -10,16 +10,16 @@ for (pp in pckgs) { library(pp,character.only=T,quietly = T,warn.conflicts = F)}
 # https://www12.statcan.gc.ca/census-recensement/2011/geo/bound-limit/bound-limit-2016-eng.cfm
 
 dir_base <- getwd()
-dir_data <- file.path(dir_base, 'DA_kramer')
+dir_kramer <- file.path(dir_base, 'DA_kramer')
 dir_output <- file.path(dir_base, 'output')
 
 # Year folders
-yy_folders <- list.files(dir_data) %>% str_subset('^[0-9]')
+yy_folders <- list.files(dir_kramer) %>% str_subset('^[0-9]')
 
 holder <- list()
 holder2 <- list()
 for (yf in yy_folders) {
-  fold <- file.path(dir_data, yf)
+  fold <- file.path(dir_kramer, yf)
   fn_fold <- list.files(fold)
   fn_fold <- str_subset(fn_fold,'\\.csv$')
   # break
@@ -79,3 +79,4 @@ write_csv(df_pop,file.path(dir_output,'df_pop.csv'))
 # Ensure no DA/year/city duplicates
 df_pop %>% group_by(city, year, DA) %>% count() %>% pull(n) %>% equals(1) %>% all %>% stopifnot
 
+print('---------- End of process_kramer.R ----------')

@@ -17,6 +17,8 @@ gg_color_hue <- function(n) {
 }
 colz2_alt <- gg_color_hue(3)[c(2,3)]
 
+cmas <- c('Toronto','Vancouver')
+
 ##################################
 # ------ (1) LOAD IN DATA ------ #
 
@@ -28,6 +30,9 @@ df_agg_pop <- read_csv(file.path(dir_output,'df_agg_pop.csv'), col_types = list(
 df_DA <- read_csv(file.path(dir_output,'df_DA.csv'), col_types = list(DA=col_integer()))
 df_PC <- read_csv(file.path(dir_output,'df_PC.csv'), col_types = list(DA=col_integer()))
 dat_latlon <- df_PC %>% group_by(DA) %>% summarise_at(vars(Latitude,Longitude),list(~mean(.)))
+df_csd <- df_PC %>% group_by(DA,cma,csd,ccsd,cd,csd_alt) %>% count
+# Select the most common one
+df_csd <- df_csd %>% arrange(DA,-n) %>% group_by(DA) %>% filter(n==max(n)) %>% dplyr::select(-n)
 
 #################################
 # ------ (2) DATA CHECKS ------ #
@@ -342,9 +347,67 @@ dat_DA_rho <- dat_DA_rho %>% group_by(DA) %>%
   summarise(tot=sum(n)) %>% right_join(dat_DA_rho) %>% 
   mutate(pct=n/tot) %>% left_join(dat_latlon,by='DA') %>% 
   mutate(s_DA=factor(s_DA,levels=c(-1,0,1),labels=c('Loss','No Change','Gain')))
-# SAVE DATA FOR GEO FILE
-write_csv(dat_DA_rho,file.path(dir_base,'output','dat_DA_rho.csv'))
 
+
+####################################
+# ------ (5) CITY BREAKDOWN ------ #
+
+# Calculate the changes into four categories: 
+# (i) New DA, (ii) Lost DA, (iii) New Density, (iv) Lost Density
+dat_delta_csd <- df_pop_iter %>% 
+  mutate(tt=ifelse(!is.na(m1) & is.na(m2),'Lost DA',
+            ifelse(is.na(m1) & !is.na(m2),'New DA',
+            ifelse(m1 > m2, 'Lost Density', 'New Density')))) %>% 
+  mutate(d_m = ifelse(is.na(m2),0,m2) - ifelse(is.na(m1),0,m1)) %>% 
+  left_join(df_csd,by='DA') %>% 
+  mutate(csd_lump=fct_lump_min(csd, 80)) %>% 
+  mutate(csd_lump=ifelse(csd_lump=='Other',str_c('Other (',city,')'),as.character(csd_lump)))
+# Calculate by time period
+dat_delta_csd_sum <- dat_delta_csd %>% 
+  group_by(city,y1,y2,tt,csd_lump) %>% 
+  summarise(d_m=sum(d_m)) %>% 
+  pivot_wider(names_from='tt',values_from='d_m') %>% 
+  mutate(`Net Density`=`New Density`-`Lost Density`,
+         `Net DAs`=`New DA`-`Lost DA`) %>% 
+  dplyr::select(!matches('Lost|New',perl=T)) %>% 
+  pivot_longer(starts_with('Net'),names_to='tt',values_to='d_m') %>% 
+  mutate(d_m = ifelse(is.na(d_m),0,d_m))
+ord_csd <- dat_delta_csd_sum %>% group_by(city,csd_lump) %>% summarise(tot=sum(d_m)) %>% 
+  arrange(-tot) %>% pull(csd_lump) %>% unique %>% as.character()
+dat_delta_csd_sum$csd_lump <- fct_relevel(dat_delta_csd_sum$csd_lump,ord_csd)
+
+holder <- list()
+for (cma in cmas) {
+  tmp_df <- filter(dat_delta_csd_sum,city==cma)
+  gg_tmp <- ggplot(tmp_df, aes(x=csd_lump,y=d_m/1e3,fill=tt)) + 
+    theme_bw() + 
+    geom_bar(stat='identity',color='black',width=0.7) + 
+    facet_grid(y2~city,scales='free') + 
+    labs(y='Net contribution (000s)') + 
+    theme(axis.text.x = element_text(angle=90,vjust = -0.01),
+          axis.title.x = element_blank(), legend.position = 'bottom') + 
+    scale_fill_discrete(name='Composition: ')
+  holder[[cma]] <- gg_tmp
+}
+tmp_legend <- get_legend(holder$Toronto)
+holder <- lapply(holder,function(ll) ll + theme(legend.position = 'none'))
+gg_csd_net <- plot_grid(plot_grid(holder$Toronto, holder$Vancouver, nrow=1),
+          tmp_legend,rel_heights = c(1,0.1),ncol=1)
+save_plot(file.path(dir_figures,'gg_csd_net.png'),gg_csd_net,base_height=10,base_width = 5)
+
+#######################################
+# ------ (6) CENSUS ANNOTATION ------ #
+
+
+
+
+############################################
+# ------ (X) SAVE DATA FOR GEO FILE ------ #
+
+# DA by new DA/density change
+write_csv(df_pop_iter,file.path(dir_base,'output','df_pop_iter.csv'))
+write_csv(dat_delta_csd,file.path(dir_base,'output','dat_delta_csd.csv'))
+# write_csv(dat_DA_rho,file.path(dir_base,'output','dat_DA_rho.csv'))
 
 # (ii) BREAK DOWN THE NET DENSITY AND NET DAs BY THE NEIGHBOURHOOD LEVEL
 # (iii) DO A SPECIAL TORONTO PRE-AMALGATION CALCULATION
