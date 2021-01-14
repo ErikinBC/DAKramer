@@ -1,10 +1,18 @@
 #######################
 # PROCESS GEOGRAPHIES #
 
+# https://github.com/sjewo/cartogram
+# https://cran.r-project.org/web/packages/tilegramsR/vignettes/UsingTilegramsInR.html
+
+# https://everydayanalytics.ca/2016/03/plotting-choropleths-from-shapefiles-in-r-with-ggmap-toronto-neighbourhoods-by-population.html
+# https://www12.statcan.gc.ca/census-recensement/2011/geo/bound-limit/bound-limit-eng.cfm
+
+
 pckgs <- c('dplyr','tidyr','readr','magrittr','stringr','forcats','data.table','broom',
            'ggplot2','cowplot','ggmap','ggh4x',
            'sf', 'rgdal','maptools')
 for (pp in pckgs) { library(pp,character.only=T,quietly = T,warn.conflicts = F)}
+# devtools::install_github("teunbrand/ggh4x")
 
 gpclibPermit()
 

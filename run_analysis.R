@@ -361,14 +361,15 @@ dat_delta_csd <- df_pop_iter %>%
   mutate(d_m = ifelse(is.na(m2),0,m2) - ifelse(is.na(m1),0,m1)) %>% 
   left_join(df_csd,by='DA') %>% 
   mutate(csd_lump=fct_lump_min(csd, 80)) %>% 
-  mutate(csd_lump=ifelse(csd_lump=='Other',str_c('Other (',city,')'),as.character(csd_lump)))
+  mutate(csd_lump=ifelse(csd_lump=='Other',str_c('Other (',city,')'),as.character(csd_lump))) %>% 
+  distinct()
 # Calculate by time period
 dat_delta_csd_sum <- dat_delta_csd %>% 
   group_by(city,y1,y2,tt,csd_lump) %>% 
   summarise(d_m=sum(d_m)) %>% 
   pivot_wider(names_from='tt',values_from='d_m') %>% 
-  mutate(`Net Density`=`New Density`-`Lost Density`,
-         `Net DAs`=`New DA`-`Lost DA`) %>% 
+  mutate(`Net Density`=`New Density`+`Lost Density`,
+         `Net DAs`=`New DA`+`Lost DA`) %>% 
   dplyr::select(!matches('Lost|New',perl=T)) %>% 
   pivot_longer(starts_with('Net'),names_to='tt',values_to='d_m') %>% 
   mutate(d_m = ifelse(is.na(d_m),0,d_m))

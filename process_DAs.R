@@ -7,6 +7,7 @@ for (pp in pckgs) { library(pp,character.only=T,quietly = T,warn.conflicts = F)}
 dir_base <- getwd()
 dir_data <- file.path(dir_base, 'data')
 dir_output <- file.path(dir_base, 'output')
+dir_census <- file.path(dir_base, 'census')
 
 # --- (1) LOAD EXISTING DATA AND DA SOURCE --- #
 
@@ -64,6 +65,13 @@ tor_1b <- df_all %>% filter(csd == 'Toronto') %>%
 df_all <- mutate(df_all, csd_alt=ifelse(csd == 'Toronto', ifelse(csd_alt %in% tor_1b, csd_alt, 'Toronto'), csd))
 
 # --- (2) LOAD THE CENSUS DATA --- #
+
+# (i) Load the BC data
+path_BC <- file.path(dir_census, '98-401-X2016044_BRITISH_COLUMBIA_English_CSV_data.csv')
+
+fwrite(fread(path_BC, nrows=22472+1),file.path(dir_census,'sub_BC.csv'))
+
+list.files(dir_census)
 
 
 # --- (3) SAVE DATA FOR LATER --- #
