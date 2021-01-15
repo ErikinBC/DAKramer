@@ -22,6 +22,9 @@ dir_shp <- file.path(dir_base, 'shp')
 df_pop <- read_csv(file.path(dir_output,'df_pop.csv'), col_types = list(city=col_character()))
 df_agg_pop <- read_csv(file.path(dir_output,'df_agg_pop.csv'), col_types = list(city=col_character()))
 
+# Load Census annotations
+df_census <- read_csv(file.path(dir_output,'df_census.csv'),col_types = list(year=col_integer()))
+
 # Load geographic info
 df_DA <- read_csv(file.path(dir_output,'df_DA.csv'), col_types = list(DA=col_integer()))
 df_PC <- read_csv(file.path(dir_output,'df_PC.csv'), col_types = list(DA=col_integer()))
@@ -30,7 +33,6 @@ df_csd_alt <- df_PC %>%
   group_by(DA,cma,csd,ccsd,cd,csd_alt) %>% count %>% 
   arrange(DA,-n) %>% ungroup %>% group_by(DA) %>% 
   slice(1) %>% dplyr::select(-n) %>% dplyr::select(c(DA,csd_alt))
-
 
 # Load analysis data
 df_pop_iter <- read_csv(file.path(dir_base,'output','df_pop_iter.csv'))
@@ -42,7 +44,6 @@ df_pop_iter %>% mutate_at(vars(c(m1,m2)),list(~ifelse(is.na(.),0,.))) %>%
   left_join(df_DA,by='DA') %>% 
   group_by(csd) %>% summarise(tot=sum(d_m)) %>% arrange(-tot)
   
-
 u_years <- unique(df_pop$year)
 n_uyears <- length(u_years)
 u_DAs <- unique(df_pop$DA)
@@ -58,8 +59,8 @@ shp_DA <- read_sf(file.path(dir_output_shp,'DA.shp'))
 path_shp_tor <- file.path(dir_shp,'toronto','NEIGHBORHOODS_WGS84_2.shp')
 shp_tor <- read_sf(path_shp_tor) %>% 
   mutate(AREA_NAME = str_replace_all(AREA_NAME, '\\s\\(.*\\)','')) %>% 
-  st_transform(crs='NAD83') %>% 
-  mutate(area=as.numeric(units::set_units(st_area(shp_tor),km^2)))
+  st_transform(crs='NAD83')
+shp_tor <- mutate(shp_tor, area = as.numeric(units::set_units(st_area(shp_tor),km^2)))
 
 #######################################
 # ------ (2) MERGE & CALCULATE ------ #
@@ -95,16 +96,16 @@ dat_delta_DA <- dat_delta_csd %>%
   mutate(d_m = ifelse(is.na(d_m),0,d_m))
 # Merge with the neighbourhoods and sum
 dat_delta_tor <- dat_delta_DA %>% 
-  right_join(di_tor_neighbourhood,by=c('DA'='DAUID')) %>% 
+  right_join(di_tor_neighbourhood,by='DA') %>% 
   group_by(y1,y2,tt,neighbourhood) %>% 
   summarise(d_m=sum(d_m))
 
 # Level population
 dat_tor_level <- df_pop_iter %>% 
-  right_join(di_tor_neighbourhood,by=c('DA'='DAUID')) %>% 
+  right_join(di_tor_neighbourhood,by='DA') %>% 
   mutate_at(vars(m1,m2),list(~ifelse(is.na(.),0,.))) %>% 
   group_by(neighbourhood,y1,y2) %>% 
-  summarise_at(vars(m1,m2),list(~sum(.)))
+  summarise_at(vars(m1,m2),list(~sum(.))) %>% ungroup
 
 # Make plot calculate net gains by region
 dat_delta_tor_sum <- dat_delta_tor %>% 
@@ -132,7 +133,6 @@ gg_tor_preamalg_neighbourhoods <- dat_delta_tor_tot %>%
   labs(x='Change in population since 1971 (000s)') + 
   geom_vline(xintercept = 0) + 
   scale_color_discrete(name='Pre-amalgamation')
-
 save_plot(file.path(dir_figures,'gg_tor_preamalg_neighbourhoods.png'),
           gg_tor_preamalg_neighbourhoods,base_height=13.5,base_width = 4.5)
 
@@ -143,7 +143,7 @@ tmp_txt <- dat_delta_tor_tot %>% group_by(csd_alt) %>%
 
 # NOTICE 23 / 140 OF TORONTO'S NEIGHBOURHOODS ADED MORE THAN 10k PEOPLE SINCE 1971
 gg_tor_preamalg_10k <- 
-dat_delta_tor_tot %>% 
+  dat_delta_tor_tot %>% 
   ggplot(aes(x=csd_alt,y=d_m/1e3,color=csd_alt)) + 
   theme_bw() + geom_boxplot() + guides(color=F) + 
   theme(axis.title.x = element_blank()) + 
@@ -154,6 +154,21 @@ dat_delta_tor_tot %>%
 save_plot(file.path(dir_figures,'gg_tor_preamalg_10k.png'),
           gg_tor_preamalg_10k,base_height=4,base_width = 6)
 
+# (iv) Merge census data with the Toronto-area regions
+shp_tor_census <- shp_DA %>% 
+  dplyr::select(DAUID,CSDNAME,geometry,neighbourhood) %>% 
+  filter(neighbourhood != '') %>% dplyr::rename(DA=DAUID) %>% 
+  mutate(DA=as.integer(DA)) %>% 
+  left_join(df_census,by='DA') %>% dplyr::select(-c(prov))
+shp_tor_census_mu <- shp_tor_census %>% 
+  group_by(neighbourhood) %>% 
+  summarise_at(vars(singd,semd,row,income,apt),list(~weighted.mean(x=.,w=pop,na.rm = T)))
+##  Note the overlap is imprecise
+# ggplot() + 
+#   geom_sf(data=shp_tor_census_mu,color='red',fill=NA) + 
+#   geom_sf(data=shp_tor,color='black',fill=NA) + 
+#   scale_fill_viridis_b() 
+  
 
 ###############################
 # ------ (3) MAP PLOTS ------ #
@@ -224,41 +239,54 @@ gg_tor_density <- ggplot(tmp_shp3) +
 save_plot(file.path(dir_figures,'gg_tor_density.png'),gg_tor_density,base_height = 6,base_width = 12)
 
 # (4) Figure 4: Gains by the census subdivision
+# TOTAL GAINS FOR BOTH TORONTO AND VANCOUVER CMA
 
 
 ##############################################
 # ------ (4) STATISTICAL ASSOCIATIONS ------ #
 
-
-
-df_tor_stats <- dat_delta_tor %>% 
-  group_by(y1,y2,neighbourhood) %>% 
-  summarise(d_m=sum(d_m)) %>% 
+# Can we predict lifetime population increases as a function of....
+df_tor_stats <-
+  dat_delta_tor_tot %>% 
   left_join(as_tibble(shp_tor),by=c('neighbourhood'='AREA_NAME')) %>% 
   dplyr::select(-c(geometry,AREA_S_CD)) %>% 
-  left_join(dat_tor_level,by=c('neighbourhood','y1','y2')) %>% 
-  mutate(dens1=m1/(area*1000), dens2=m2/(area*1000)) %>% 
-  pivot_longer(c(m1,m2,dens1,dens2),names_to='vv') %>% 
-  filter(str_detect(vv,'2$')) %>% 
-  mutate(vv=fct_recode(vv,'Pop. Level'='m2','Pop. Density'='dens2'))
+  left_join(as_tibble(shp_tor_census_mu),'neighbourhood') %>% 
+  dplyr::select(-geometry) %>% 
+  left_join(dplyr::select(filter(dat_tor_level,y2==2016),neighbourhood,m2),by='neighbourhood') %>% 
+  dplyr::rename(pop2016=m2) %>% 
+  mutate(tot=singd+semd+row+apt) %>% 
+  mutate_at(vars(singd,semd,row,apt),~(./tot)) %>% dplyr::select(-tot)
+  # mutate(sfd = singd+semd, mfd=row+apt) %>% 
+  # dplyr::select(-c(singd,semd,row,apt)) %>% 
+  # mutate_at(vars(sfd, mfd),list(~./(sfd+mfd))) # population per housing type
+
+Xvars <- c('area','income','singd','semd','row','apt')  #'sfd','mfd'
+df_X <- data.frame(scale(df_tor_stats[,Xvars],center = T,scale = T)) %>% mutate(y = df_tor_stats$d_m/1e3)
+colnames(df_X) <- c(Xvars,'y')
+df_X <- as_tibble(df_X)
+summary(lm(y ~ area+income+I(singd+semd)+I(row+apt), data=df_X))
+
+# Leaving apartment's out
+df_tor_stats %>% 
+  pivot_longer(!c(csd_alt, neighbourhood, d_m,pop2016),names_to='vv') %>% 
+  ggplot(aes(x=value,y=d_m)) + theme_bw() + 
+  geom_point() + facet_wrap(~vv,scales='free_x') + 
+  geom_smooth(method='lm')
+
+
+# df_tor_stats <- dat_delta_tor %>% 
+#   group_by(y1,y2,neighbourhood) %>% 
+#   summarise(d_m=sum(d_m)) %>% 
+#   left_join(as_tibble(shp_tor),by=c('neighbourhood'='AREA_NAME')) %>% 
+#   dplyr::select(-c(geometry,AREA_S_CD)) %>% 
+#   left_join(dat_tor_level,by=c('neighbourhood','y1','y2')) %>% 
+#   mutate(dens1=m1/(area*1000), dens2=m2/(area*1000)) %>% 
+#   pivot_longer(c(m1,m2,dens1,dens2),names_to='vv') %>% 
+#   filter(str_detect(vv,'2$')) %>% 
+#   mutate(vv=fct_recode(vv,'Pop. Level'='m2','Pop. Density'='dens2'))
 
 # df_tor_stats %>% filter(vv == 'Pop. Level' & y2==2016) %>% with(.,plot(area,value))
 
-ggplot(df_tor_stats,aes(x=value,y=d_m,color=as.character(y2))) + 
-  geom_point(alpha=0.5,size=1) + theme_bw() + 
-  geom_smooth(method='lm',color='black') + 
-  facet_wrap(~vv,scales='free_x') + 
-  labs(x='Population density/level',y='Level change in population',
-       subtitle = 'Change between census years') + 
-  scale_color_discrete(name='Census year')
-
-dat_delta_tor %>% 
-  group_by(tt,neighbourhood) %>% 
-  summarise(d_m = sum(d_m)) %>% 
-  pivot_wider(names_from = 'tt',values_from='d_m') %>% 
-  ggplot(aes(x=(`Net DAs`),y=(`Net Density`))) + 
-  theme_bw() + geom_point() + 
-  geom_smooth(method = 'lm')
 
 
 
