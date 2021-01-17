@@ -32,7 +32,7 @@ df_PC <- read_csv(file.path(dir_output,'df_PC.csv'), col_types = list(DA=col_int
 dat_latlon <- df_PC %>% group_by(DA) %>% summarise_at(vars(Latitude,Longitude),list(~mean(.)))
 df_csd <- df_PC %>% group_by(DA,cma,csd,ccsd,cd,csd_alt) %>% count
 # Select the most common one
-df_csd <- df_csd %>% arrange(DA,-n) %>% group_by(DA) %>% filter(n==max(n)) %>% dplyr::select(-n)
+df_csd <- df_csd %>% arrange(DA,-n) %>% group_by(DA) %>% slice(1) %>% ungroup
 
 #################################
 # ------ (2) DATA CHECKS ------ #
@@ -349,8 +349,14 @@ dat_DA_rho <- dat_DA_rho %>% group_by(DA) %>%
   mutate(s_DA=factor(s_DA,levels=c(-1,0,1),labels=c('Loss','No Change','Gain')))
 
 
-####################################
-# ------ (5) CITY BREAKDOWN ------ #
+#########################################
+# ------ (5) CENSUS SUBDIVISIONS ------ #
+
+# df_pop_iter %>% group_by(city,y1,y2) %>% 
+#   mutate_at(vars(m1,m2),list(~ifelse(is.na(.),0,.))) %>% 
+#   mutate(d_m=m2 - m1) %>% group_by(city) %>% summarise(tot=sum(d_m))
+# dat_delta_csd %>% group_by(city) %>% summarise(tot=sum(d_m))
+# dat_delta_csd_sum %>% group_by(city) %>% summarise(tot=sum(d_m))
 
 # Calculate the changes into four categories: 
 # (i) New DA, (ii) Lost DA, (iii) New Density, (iv) Lost Density
@@ -364,10 +370,12 @@ dat_delta_csd <- df_pop_iter %>%
   mutate(csd_lump=ifelse(csd_lump=='Other',str_c('Other (',city,')'),as.character(csd_lump))) %>% 
   distinct()
 # Calculate by time period
-dat_delta_csd_sum <- dat_delta_csd %>% 
+dat_delta_csd_sum <-
+  dat_delta_csd %>% 
   group_by(city,y1,y2,tt,csd_lump) %>% 
   summarise(d_m=sum(d_m)) %>% 
   pivot_wider(names_from='tt',values_from='d_m') %>% 
+  mutate_if(is.double,list(~ifelse(is.na(.),0,.))) %>% 
   mutate(`Net Density`=`New Density`+`Lost Density`,
          `Net DAs`=`New DA`+`Lost DA`) %>% 
   dplyr::select(!matches('Lost|New',perl=T)) %>% 
@@ -392,14 +400,41 @@ for (cma in cmas) {
 }
 tmp_legend <- get_legend(holder$Toronto)
 holder <- lapply(holder,function(ll) ll + theme(legend.position = 'none'))
-gg_csd_net <- plot_grid(plot_grid(holder$Toronto, holder$Vancouver, nrow=1),
+gg_csd_net <- plot_grid(plot_grid(holder$Toronto, holder$Vancouver, nrow=1,align = 'hv'),
           tmp_legend,rel_heights = c(1,0.1),ncol=1)
-save_plot(file.path(dir_figures,'gg_csd_net.png'),gg_csd_net,base_height=10,base_width = 5)
+save_plot(file.path(dir_figures,'gg_csd_net.png'),gg_csd_net,base_height=10,base_width = 7)
 
-#######################################
-# ------ (6) CENSUS ANNOTATION ------ #
+# Aggreate total gains over all years for ALL CSDs
+tmp1 <- dat_delta_csd %>% 
+  group_by(city,csd) %>% 
+  summarise(d_m=sum(d_m)) %>% ungroup %>% mutate(tt='Net Total')
+tmp2 <- dat_delta_csd %>% ungroup %>% 
+  pivot_wider(names_from='tt',values_from='d_m') %>% 
+  mutate_if(is.double,list(~ifelse(is.na(.),0,.))) %>% 
+  mutate(`Net Density`=`New Density`+`Lost Density`,
+         `Net DAs`=`New DA`+`Lost DA`) %>% 
+  dplyr::select(city,DA,csd,starts_with('Net')) %>% 
+  group_by(city,csd) %>% summarise_at(vars(starts_with('Net')),list(~sum(.))) %>% 
+  pivot_longer(starts_with('Net'),names_to='tt',values_to='d_m')
+dat_delta_csd_tot <- rbind(tmp1, tmp2) %>% group_by(tt,city) %>% 
+  summarise(tot=sum(d_m)) %>% 
+  right_join(dat_delta_csd_tot, by=c('tt','city')) %>% 
+  mutate(pct=d_m / tot)
 
 
+# Make a plot showing
+tmp <- filter(dat_delta_csd_tot,tt=='Net Total') %>% 
+  mutate(csd=fct_reorder(apply(str_split_fixed(csd,'\\s',4)[,1:3],1,str_c,collapse=' '),d_m))
+gg_delta_csd_pct <- ggplot(tmp,aes(y=csd,x=pct,color=city)) + 
+  geom_point() + theme_bw() + guides(color=F) + 
+  facet_wrap(~city,scales='free_y') + 
+  labs(x='Net contribution (%)', subtitle = 'Pop. change since 1971') + 
+  theme(axis.title.y = element_blank()) + 
+  scale_x_continuous(labels=scales::percent_format(1))
+save_plot(file.path(dir_figures,'gg_delta_csd_pct.png'),gg_delta_csd_pct,base_height=4.5,base_width = 7)
+
+# df_agg_DA %>% pivot_wider(city,names_from='year',values_from='pop') %>% 
+#   mutate(gain=`2016` - `1971`) %>% dplyr::select(c(city,gain))
 
 
 ############################################
@@ -409,6 +444,9 @@ save_plot(file.path(dir_figures,'gg_csd_net.png'),gg_csd_net,base_height=10,base
 write_csv(df_pop_iter,file.path(dir_base,'output','df_pop_iter.csv'))
 write_csv(dat_delta_csd,file.path(dir_base,'output','dat_delta_csd.csv'))
 # write_csv(dat_DA_rho,file.path(dir_base,'output','dat_DA_rho.csv'))
+
+# CSD total change
+write_csv(dat_delta_csd_tot,file.path(dir_base,'output','dat_delta_csd_tot.csv'))
 
 # (ii) BREAK DOWN THE NET DENSITY AND NET DAs BY THE NEIGHBOURHOOD LEVEL
 # (iii) DO A SPECIAL TORONTO PRE-AMALGATION CALCULATION
