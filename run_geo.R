@@ -134,8 +134,9 @@ dat_delta_tor_tot <- di_tor_neighbourhood %>%
   slice(1) %>% dplyr::select(-n) %>% 
   right_join(dat_delta_tor_tot)  %>% 
   arrange(-d_m) %>% ungroup %>% 
-  mutate(gg=cut(d_m,breaks=c(-12000,0,5000,60000),labels=c('<0','0-5K','>5K'))) 
-dat_delta_tor_tot
+  mutate(gg=cut(d_m,breaks=c(-12000,0,5000,60000),labels=c('<0','0-5K','>5K'))) %>% 
+  mutate(csd_alt = ifelse(csd_alt == 'Toronto', 'Old Toronto', csd_alt))
+dat_delta_tor_tot 
 
 # https://www.toronto.ca/city-government/data-research-maps/neighbourhoods-communities/neighbourhood-profiles/
 # (iii) Determine neighbourhoods by Old boundaries
@@ -150,6 +151,14 @@ gg_tor_preamalg_neighbourhoods <- dat_delta_tor_tot %>%
   scale_color_discrete(name='Pre-amalgamation')
 save_plot(file.path(dir_figures,'gg_tor_preamalg_neighbourhoods.png'),
           gg_tor_preamalg_neighbourhoods,base_height=6,base_width = 10)
+# Statistical enrichment?
+dat_delta_tor_tot %>% 
+  mutate(gg=fct_recode(gg,'pos'='>5K','pos'='0-5K','neg'='<0')) %>% 
+  group_by(csd_alt,gg) %>%
+  count %>% pivot_wider(names_from='gg',values_from='n') %>%
+  mutate_if(is.numeric,list(~ifelse(is.na(.),0,.))) %>% 
+  mutate(pct = neg / (neg+pos))
+  
 
 tmp_txt <- dat_delta_tor_tot %>% group_by(csd_alt) %>% 
   summarise(q3=quantile(d_m,0.75),q1=quantile(d_m,0.25)) %>%
@@ -250,7 +259,7 @@ gg_tor_tt <- ggplot(tmp_shp2) +
   scale_fill_gradient2(low='blue',high='red',mid='grey',midpoint = 0,
                        name='Gain in population (000s): ') + 
   facet_wrap(~tt) + guides(color=F) + 
-  theme(legend.position = 'bottom') + 
+  theme(legend.position = 'bottom',axis.title = element_blank()) + 
   labs(title='Aggregate population change by category (1971-2016)') + 
   scale_x_continuous(breaks=c(-79.6,-79.4,-79.2)) + 
   scale_y_continuous(breaks=c(43.6,43.7,43.8)) + 
@@ -348,13 +357,13 @@ summary(lm(y ~ area+income+I(singd+semd)+I(row+apt), data=df_X))
 
 # Leaving apartment's out
 gg_statistical_assoc <- df_tor_stats %>% mutate(income=income/1e3, d_m=d_m/1e3) %>% 
-  pivot_longer(!c(csd_alt, neighbourhood, d_m,pop2016),names_to='vv') %>% 
+  pivot_longer(!c(csd_alt, neighbourhood, d_m,pop2016,gg),names_to='vv') %>% 
   ggplot(aes(x=value,y=d_m)) + theme_bw() + 
   geom_point() + 
   facet_wrap(~vv,scales='free_x',labeller = labeller(vv=cn_lbl)) + 
   geom_smooth(method='lm') + 
   labs(y='Change in population since 1971', x='Value',
-       subtitle = 'Feature values from 2016 census')
+       subtitle = "Toronto's 140 neighbourhoods: feature values from 2016 census")
 save_plot(file.path(dir_figures,'gg_statistical_assoc.png'),gg_statistical_assoc,
           base_height = 5,base_width = 8)
 
