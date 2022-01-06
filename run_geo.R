@@ -353,13 +353,18 @@ Xvars <- c('area','income','singd','semd','row','apt')  #'sfd','mfd'
 df_X <- data.frame(scale(df_tor_stats[,Xvars],center = T,scale = T)) %>% mutate(y = df_tor_stats$d_m/1e3)
 colnames(df_X) <- c(Xvars,'y')
 df_X <- as_tibble(df_X)
-summary(lm(y ~ area+income+I(singd+semd)+I(row+apt), data=df_X))
+library(sjPlot)
+mdl <- lm(y ~ area+income+I(singd+semd)+I(row+apt), data=df_X)
+summary(mdl)
+
+tab_model(mdl)
 
 # Leaving apartment's out
-gg_statistical_assoc <- df_tor_stats %>% mutate(income=income/1e3, d_m=d_m/1e3) %>% 
+tmp <- df_tor_stats %>% mutate(income=income/1e3, d_m=d_m/1e3) %>% 
   pivot_longer(!c(csd_alt, neighbourhood, d_m,pop2016,gg),names_to='vv') %>% 
-  ggplot(aes(x=value,y=d_m)) + theme_bw() + 
-  geom_point() + 
+  mutate(vv=factor(vv,levels=Xvars)) 
+gg_statistical_assoc <- ggplot(tmp, aes(x=value,y=d_m)) + 
+  theme_bw() + geom_point() + 
   facet_wrap(~vv,scales='free_x',labeller = labeller(vv=cn_lbl)) + 
   geom_smooth(method='lm') + 
   labs(y='Change in population since 1971', x='Value',
